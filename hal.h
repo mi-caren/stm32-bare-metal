@@ -1,17 +1,17 @@
+#pragma once
+
 #include <stdint.h>
 #include <stdbool.h>
-#include <stddef.h>
+
+
 /* ---------------------------------------------------- */
 /* --------------- DEFINES ---------------------------- */
 /* ---------------------------------------------------- */
-
-
 
 #define BIT(x)            (1UL << (x))
 #define PIN(bank, num)    ((((bank) - 'A') << 8) | (num))
 #define PINNO(pin)        ((pin) & 0xf)
 #define PINBANK(pin)      ((pin) >> 8)
-
 
 #define GPIO(bank)        (( struct gpio * )    ( 0x48000000 + (0x0400 * (bank))))
 #define RCC               (( struct rcc * )       0x58000000 )
@@ -22,8 +22,6 @@
 
 
 #define FREQ              4000000    // Cpu frequency, 4Mhz
-
-
 
 /* ---------------------------------------------------- */
 /* --------------- STRUCTS ---------------------------- */
@@ -131,13 +129,10 @@ enum {
 };
 
 
-
-
 /* ---------------------------------------------------- */
 /* --------------- FUNCTIONS -------------------------- */
 /* ---------------------------------------------------- */
 
-static volatile uint32_t s_ticks;
 
 static inline void spin(volatile uint32_t count) {
     while (count--) (void) 0;
@@ -148,14 +143,14 @@ static inline void gpio_set_mode(uint16_t pin, uint8_t mode) {
     struct gpio* gpio = GPIO(PINBANK(pin));
     uint8_t n = PINNO(pin);
     RCC->AHB2ENR |= BIT(PINBANK(pin));
-    gpio->MODER &= ~( 0b11 << ( n * 2 ) );
+    gpio->MODER &= ~( 0b11U << ( n * 2 ) );
     gpio->MODER |= ( mode << ( n * 2 ) );
 }
 
 static inline void gpio_set_af(uint16_t pin, uint8_t af_num) {
     struct gpio* gpio = GPIO(PINBANK(pin));
     uint8_t n = PINNO(pin);
-    gpio->AFR[ pin / 8 ] &= ~( 0b1111 << ( ( n % 8 ) * 4 ) );
+    gpio->AFR[ pin / 8 ] &= ~( 0b1111U << ( ( n % 8 ) * 4 ) );
     gpio->AFR[ pin / 8 ] |= af_num << ( ( n % 8 ) * 4 );
 }
 
@@ -213,81 +208,13 @@ static inline void systick_init(uint32_t ticks) {
     SYSTICK->CTRL |= BIT(0) | BIT(1) | BIT(2);
 }
 
-void SysTick_Handler(void) {
-    s_ticks++;
-}
 
 // t: expiration time, prd: period, now: current time. Return true if expired
-bool timer_expired(uint32_t *t, uint32_t prd, uint32_t now) {
-    if (now + prd < *t) *t = 0;                    // Time wrapped? Reset timer
-    if (*t == 0) *t = now + prd;                   // First poll? Set expiration
-    if (*t > now) return false;                    // Not expired yet, return
-    *t = (now - *t) > prd ? now + prd : *t + prd;  // Next expiration time
-    return true;                                   // Expired, return true
+static inline bool timer_expired(uint32_t *t, uint32_t prd, uint32_t now) {
+  if (now + prd < *t) *t = 0;                    // Time wrapped? Reset timer
+  if (*t == 0) *t = now + prd;                   // Firt poll? Set expiration
+  if (*t > now) return false;                    // Not expired yet, return
+  *t = (now - *t) > prd ? now + prd : *t + prd;  // Next expiration time
+  return true;                                   // Expired, return true
 }
 
-
-/* ---------------------------------------------------- */
-/* --------------- MAIN ---------------------------- */
-/* ---------------------------------------------------- */
-
-
-int main(void) {
-    uint16_t led = PIN('B', 15);
-    gpio_set_mode(led, GPIO_MODE_OUTPUT);
-    systick_init(4000000 / 1000);
-
-    uint32_t timer, period = 500;    // Declare timer and 500ms period
-
-    uart_init(LPUART1, 115200);
-
-    for (;;) {
-        if (timer_expired(&timer, period, s_ticks)) {
-            static bool on;
-            gpio_write(led, on);
-            on = !on;
-
-            uart_write_buf(LPUART1, "hi\r\n", 4);
-        }
-    };
-
-    return 0;
-}
-
-
-
-
-/* ---------------------------------------------------- */
-/* --------------- STARTUP ---------------------------- */
-/* ---------------------------------------------------- */
-
-
-__attribute__((naked, noreturn)) void _reset(void) {
-	extern long _data_start, _data_end, _data_loadaddr, _bss_start, _bss_end;
-
-    for (long *bss_p = &_bss_start; bss_p < &_bss_end; bss_p++) {
-        *bss_p = 0;
-    }
-
-    long *data_lvm_p = &_data_loadaddr;
-    long *data_sram1_p = &_data_start;
-    while (data_sram1_p < &_data_end) {
-        *data_sram1_p = *data_lvm_p;
-        data_sram1_p++;
-        data_lvm_p++;
-    }
-
-    main();
-
-    for(;;) (void) 0;
-}
-
-extern void _estack(void);
-
-// vector table. 16 cortex-m4 specific interrupts + 62 stm32wl55 interrupts
-__attribute__((section(".vectors"))) void (*tab[16 + 62]) (void) = {
-	_estack,
-	_reset,
-	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	SysTick_Handler,
-};

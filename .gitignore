@@ -1,0 +1,6 @@
+*.bin
+*.elf
+*.elf.map
+cscope*
+.cache
+bin/

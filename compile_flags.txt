@@ -1,0 +1,20 @@
+-W
+-Wall
+-Wextra
+-Werror
+-Wundef
+-Wshadow
+-Wdouble-promotion
+-Wformat-truncation
+-Wno-unused-value
+-Wno-unused-variable
+-Wno-unused-parameter
+-Wno-unused-but-set-variable
+-fno-common
+-g3
+-Os
+-ffunction-sections
+-fdata-sections
+-I.
+# -mcpu=cortex-m4
+-mthumb

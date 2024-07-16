@@ -81,6 +81,7 @@ enum {
     GPIO_MODE_ANALOG
 };
 
+
 static void gpio_set_mode(uint16_t pin, uint8_t mode) {
     struct gpio* gpio = GPIO(PINBANK(pin));
     uint8_t n = PINNO(pin);
@@ -88,13 +89,38 @@ static void gpio_set_mode(uint16_t pin, uint8_t mode) {
     gpio->MODER |= ( mode << ( n * 2 ) );
 }
 
+static inline void gpio_write(uint16_t pin, bool val) {
+    struct gpio* gpio = GPIO(PINBANK(pin));
+    gpio->BSRR = ( 1U << PINNO(pin) ) << ( val ? 0 : 16 );
+}
+
+static inline void spin(volatile uint32_t count) {
+    while (count--) (void) 0;
+}
+
+
+
+
+
+
 int main(void) {
     uint16_t led = PIN('B', 15);
     RCC->AHB2ENR |= BIT(PINBANK(led));
     gpio_set_mode(led, GPIO_MODE_OUTPUT);
-    for (;;) (void) 0;
+
+    for (;;) {
+        gpio_write(led, true);
+        spin(999999);
+        gpio_write(led, false);
+        spin(999999);
+    };
     return 0;
 }
+
+
+
+
+
 
 
 __attribute__((naked, noreturn)) void _reset(void) {

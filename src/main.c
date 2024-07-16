@@ -1,14 +1,30 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+/* ---------------------------------------------------- */
+/* --------------- DEFINES ---------------------------- */
+/* ---------------------------------------------------- */
+
+
+
 #define BIT(x)            (1UL << (x))
 #define PIN(bank, num)    ((((bank) - 'A') << 8) | (num))
 #define PINNO(pin)        ((pin) & 0xf)
 #define PINBANK(pin)      ((pin) >> 8)
 
 
-#define GPIO(bank)        (( struct gpio * ) ( 0x48000000 + (0x0400 * (bank))))
-#define RCC               (( struct rcc * )  ( 0x58000000 ))
+#define GPIO(bank)        (( struct gpio * )    ( 0x48000000 + (0x0400 * (bank))))
+#define RCC               (( struct rcc * )       0x58000000 )
+#define SYSTICK           (( struct systick * )   0xe000e010 )
+
+
+
+
+
+/* ---------------------------------------------------- */
+/* --------------- STRUCTS ---------------------------- */
+/* ---------------------------------------------------- */
+
 
 
 struct gpio {
@@ -72,6 +88,20 @@ struct rcc {
     volatile uint32_t CSR;
 };
 
+struct systick {
+	volatile uint32_t CTRL;
+	volatile uint32_t LOAD;
+	volatile uint32_t VAL;
+	volatile uint32_t CALIB;
+};
+
+
+
+
+/* ---------------------------------------------------- */
+/* --------------- ENUMS ------------------------------ */
+/* ---------------------------------------------------- */
+
 
 
 enum {
@@ -80,6 +110,17 @@ enum {
     GPIO_MODE_ALTERNATE_FUNCTION,
     GPIO_MODE_ANALOG
 };
+
+
+
+
+/* ---------------------------------------------------- */
+/* --------------- FUNCTIONS -------------------------- */
+/* ---------------------------------------------------- */
+
+static volatile uint32_t s_ticks;
+
+
 
 
 static void gpio_set_mode(uint16_t pin, uint8_t mode) {
@@ -98,29 +139,57 @@ static inline void spin(volatile uint32_t count) {
     while (count--) (void) 0;
 }
 
+static inline void systick_init(uint32_t ticks) {
+    if ((ticks - 1) > 0xffffff) return;
+    SYSTICK->LOAD = ticks - 1;
+    SYSTICK->VAL = 0;
+    SYSTICK->CTRL |= BIT(0) | BIT(1) | BIT(2);
+}
+
+void SysTick_Handler(void) {
+    s_ticks++;
+}
+
+// t: expiration time, prd: period, now: current time. Return true if expired
+bool timer_expired(uint32_t *t, uint32_t prd, uint32_t now) {
+    if (now + prd < *t) *t = 0;                    // Time wrapped? Reset timer
+    if (*t == 0) *t = now + prd;                   // First poll? Set expiration
+    if (*t > now) return false;                    // Not expired yet, return
+    *t = (now - *t) > prd ? now + prd : *t + prd;  // Next expiration time
+    return true;                                   // Expired, return true
+}
 
 
-
+/* ---------------------------------------------------- */
+/* --------------- MAIN ---------------------------- */
+/* ---------------------------------------------------- */
 
 
 int main(void) {
     uint16_t led = PIN('B', 15);
     RCC->AHB2ENR |= BIT(PINBANK(led));
     gpio_set_mode(led, GPIO_MODE_OUTPUT);
+    systick_init(4000000 / 1000);
+
+    uint32_t timer, period = 500;    // Declare timer and 500ms period
 
     for (;;) {
-        gpio_write(led, true);
-        spin(999999);
-        gpio_write(led, false);
-        spin(999999);
+        if (timer_expired(&timer, period, s_ticks)) {
+            static bool on;
+            gpio_write(led, on);
+            on = !on;
+        }
     };
+
     return 0;
 }
 
 
 
 
-
+/* ---------------------------------------------------- */
+/* --------------- STARTUP ---------------------------- */
+/* ---------------------------------------------------- */
 
 
 __attribute__((naked, noreturn)) void _reset(void) {
@@ -149,6 +218,6 @@ extern void _estack(void);
 __attribute__((section(".vectors"))) void (*tab[16 + 62]) (void) = {
 	_estack,
 	_reset,
-	// 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-	// systick_handler
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	SysTick_Handler,
 };
